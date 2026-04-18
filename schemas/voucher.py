@@ -6,7 +6,7 @@ schemas/voucher.py — 转账凭证
 """
 from typing import List
 from pydantic import BaseModel, Field
-
+from decimal import Decimal
 
 class VoucherLineItemSchema(BaseModel):
     subject_code: str | None = Field(
@@ -21,7 +21,7 @@ class VoucherLineItemSchema(BaseModel):
         default=None,
         description="收款单位全称，用于与发票销售方、银行回单收款人交叉比对",
     )
-    book_amount: float | None = Field(
+    book_amount: Decimal | None = Field(
         default=None,
         description="账面金额，绝对值正数，单位元",
     )
