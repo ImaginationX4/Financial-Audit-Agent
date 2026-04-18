@@ -1,0 +1,28 @@
+name: Run Pytest
+
+# 触发条件：当你向 main 分支 push 代码时，启动机器人
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest # 分配一台最新的 Ubuntu 虚拟机
+
+    steps:
+    - name: 1. 检出代码
+      uses: actions/checkout@v4
+
+    - name: 2. 配置 Python 环境
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10" # 默认使用 3.10，基本能兼容大部分项目
+
+    - name: 3. 安装依赖 (根据 requirements.txt)
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: 4. 执行自动化测试
+      run: |
+        pytest
