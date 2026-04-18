@@ -215,7 +215,7 @@ VALID_RATES = [0.0, 0.01, 0.03, 0.05, 0.06, 0.09, 0.13]
 
 @given(
     # 模拟不含税金额：从 0.01 到 1 亿，精度到分
-    amt=st.floats(min_value=0.01, max_value=1e8, allow_nan=False, allow_infinity=False),
+    amt=st.decimals(min_value=0.01, max_value=1e8, allow_nan=False, allow_infinity=False),
     # 从白名单中随机选一个税率
     rate=st.sampled_from(VALID_RATES),
     # 模拟一个随机的扰动误差：-0.5 到 +0.5 之间
