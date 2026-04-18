@@ -40,7 +40,7 @@ test_invoice.py — InvoiceSchema 单元测试
 import pytest
 from pydantic import ValidationError
 from schemas.invoice import InvoiceSchema
-
+from decimal import Decimal
 
 # ─────────────────────────────────────────────
 # 辅助工厂函数：把"构造 Schema"这个噪音集中在一处
@@ -214,22 +214,32 @@ from schemas.invoice import InvoiceSchema
 VALID_RATES = [0.0, 0.01, 0.03, 0.05, 0.06, 0.09, 0.13]
 
 @given(
-    # 模拟不含税金额：从 0.01 到 1 亿，精度到分
-    amt=st.decimals(min_value=0.01, max_value=1e8, allow_nan=False, allow_infinity=False),
-    # 从白名单中随机选一个税率
+    # 修复 Warning：必须使用字符串或 Decimal 对象来定义边界，切断 float 污染
+    amt=st.decimals(
+        min_value=Decimal("0.01"), 
+        max_value=Decimal("100000000"), 
+        allow_nan=False, 
+        allow_infinity=False
+    ),
+    # 保持原样，因为这取决于你的原数据结构
     rate=st.sampled_from(VALID_RATES),
-    # 模拟一个随机的扰动误差：-0.5 到 +0.5 之间
-    error=st.floats(min_value=0, max_value=0.5)
+    # 修复 TypeError：将误差也统一改为 decimals 生成器，避免混用
+    error=st.decimals(
+        min_value=Decimal("0.0"), 
+        max_value=Decimal("0.5")
+    )
 )
 def test_invoice_acceptance_within_tolerance_property(amt, rate, error):
     """
     属性 1：只要 (预期总额 - 实际总额) 的绝对值 <= 0.5，Schema 永远不应该报错。
     """
+    dec_rate = Decimal(str(rate))
+    dec_one = Decimal("1")
     # 理论上的精确含税金额
-    expected_total = amt * (1 + rate)
+    expected_total = amt * (dec_one + dec_rate)
     # 注入随机误差后的实际金额
     actual_total = expected_total + error
-    
+
     # 业务前置守卫：含税不能小于不含税（这是我们 Schema 里的硬规则）
     # 如果生成的 error 导致 total < amt，我们跳过这组随机数，不计入测试
     
