@@ -27,58 +27,68 @@ def match_financial_documents(
     invoices: List[InvoiceSchema],
     receipts: List[BankReceiptSchema],
 ) -> MatchedTransactionGroupSchema:
-    """
-    将同一业务组的三类单据送入 LLM 进行对账。
 
-    契约：
-        输入：同一业务组内的凭证列表、发票列表、银行回单列表（可以为空列表）
-        输出：MatchedTransactionGroupSchema 实例，包含差额和 AI 推理说明
-    异常：
-        RuntimeError：LLM 未返回合法 JSON，或返回的不是单个对象
-        ValidationError：JSON 合法但不满足 MatchedTransactionGroupSchema 规则
-
-    注意：
-        此函数不做重试。对账结果涉及业务判断，错误应暴露给调用方处理。
-    """
-    # --- 组装输入数据 ---
-    input_data = {
-        "当前关联的转账凭证": [v.model_dump(mode="json") for v in vouchers],
-        "当前关联的发票": [i.model_dump(mode="json") for i in invoices],
-        "当前关联的银行流水": [r.model_dump(mode="json") for r in receipts],
-    }
-    input_json_str = json.dumps(input_data, ensure_ascii=False, indent=2)
-    schema_definition = json.dumps(
-        MatchedTransactionGroupSchema.model_json_schema(), ensure_ascii=False, indent=2
+    # ── 1. 提取金额 ──────────────────────────────────
+    voucher_credit = sum(
+        item.credit_amount or 0.0
+        for v in vouchers
+        for item in v.line_items
+        if item.subject_name and "银行存款" in item.subject_name
     )
+    bank_total = sum(r.actual_paid_amount or 0.0 for r in receipts)
+    invoice_total = sum(i.total_amount_with_tax or 0.0 for i in invoices)
 
-    prompt = (
-        "你是一个顶级的财务审计专家。我将为你提供同一家公司的一组财务单据，"
-        "包括转账凭证、发票和银行流水。\n"
-        "你的任务是对这组数据进行内部核算和对账。\n\n"
-        "核算原则：\n"
-        "- 计算凭证账面的总金额、发票含税总金额、银行流水的实际支付总金额。\n"
-        "- 算出差额（invoice_difference = 发票含税总额 - 凭证账面总额）。\n"
-        "- 在 match_reasoning 中详细说明这笔业务的合理性，"
-        "以及是否存在少开发票、多付款等情况。\n\n"
-        f"【输入数据】\n{input_json_str}\n\n"
-        "【输出要求】\n"
-        "你必须且只能以单个 JSON 对象（Object）的格式返回数据，不要包裹在数组中。\n"
-        "绝对不要输出任何自然语言解释。\n"
-        "请严格遵守以下 JSON Schema 的结构生成该对象：\n"
-        f"{schema_definition}"
-    )
+    voucher_bank_diff = round(voucher_credit - bank_total, 2)
+    invoice_bank_diff = round(invoice_total - bank_total, 2)
 
-    raw_response = call_doubao_text(
+    # ── 2. 规则引擎 → flags ──────────────────────────
+    flags = []
+
+    flags = []
+
+    if voucher_credit == 0 and bank_total > 0:
+        flags.append("账外支付")
+    if bank_total == 0 and voucher_credit > 0:
+        flags.append("虚构凭证")
+    if not invoices:
+        flags.append("无票支出")
+    if voucher_bank_diff != 0:
+        flags.append("金额篡改")
+    if invoice_bank_diff != 0:
+        flags.append("发票金额不符")
+    
+    if not flags:
+        flags.append("通过")
+
+    # ── 3. LLM 生成审计建议 ──────────────────────────
+    prompt = f"""你是一名专业审计师，请根据以下审计结果给出简洁的审计建议。
+
+异常标记：{flags}
+凭证贷方合计：{voucher_credit}
+银行实付合计：{bank_total}
+发票含税合计：{invoice_total}
+凭证与银行差异：{voucher_bank_diff}
+发票与银行差异：{invoice_bank_diff}
+
+要求：
+- 针对每个异常标记给出具体核查建议
+- 若为"通过"则给出简短确认意见
+- 不超过150字
+- 直接输出建议文字，不要JSON包装
+"""
+    audit_suggestion = call_doubao_text(
         api_key=CORP_API_KEY,
         model_endpoint=CORP_TEXT_EP,
         prompt=prompt,
     )
 
-    extracted_data = robust_json_extract(raw_response)
-
-    if not extracted_data or not isinstance(extracted_data, dict):
-        raise RuntimeError(
-            f"大模型未能返回有效的单个 JSON 对象。\n原始响应：{raw_response}"
-        )
-
-    return MatchedTransactionGroupSchema(**extracted_data)
+    # ── 4. 组装输出 ───────────────────────────────────
+    return MatchedTransactionGroupSchema(
+        matched_vouchers=vouchers,
+        matched_invoices=invoices,
+        matched_bank_receipts=receipts,
+        voucher_bank_diff=voucher_bank_diff,
+        invoice_bank_diff=invoice_bank_diff,
+        flags=flags,
+        audit_suggestion=audit_suggestion,
+    )
