@@ -254,20 +254,20 @@ def test_invoice_acceptance_within_tolerance_property(amt, rate, error):
     except ValidationError as e:
         pytest.fail(f"属性校验失败！金额:{amt}, 税率:{rate}, 误差:{error}。错误信息: {e}")
 
+from hypothesis import assume
+
 @given(
     amt=st.floats(min_value=0.01, max_value=1e8),
     rate=st.sampled_from(VALID_RATES),
-    # 模拟一个超出范围的误差
     error=st.floats(min_value=0.51, max_value=10.0)
-
 )
 def test_invoice_rejection_outside_tolerance_property(amt, rate, error):
-    """
-    属性 2：只要误差绝对值 > 0.5，Schema 必须拦截并抛出 ValidationError。
-    """
-    actual_total = (amt * (1 + rate)) + error
+    base = amt * (1 + rate)
+    actual_total = base + error
     
-
+    # 核心：确保 error 在浮点运算后仍然"存活"
+    assume(abs(actual_total - base) > 0.5)
+    
     with pytest.raises(ValidationError) as exc_info:
         InvoiceSchema(
             invoice_amount=amt,

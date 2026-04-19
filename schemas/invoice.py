@@ -5,22 +5,22 @@ schemas/invoice.py — 发票
 
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
-from decimal import Decimal
+
 
 class InvoiceSchema(BaseModel):
     seller_name: str | None = Field(
         default=None,
         description="销售方（收款单位）全称，用于与凭证 payee 字段交叉比对",
     )
-    invoice_amount: Decimal | None = Field(
+    invoice_amount: float | None = Field(
         default=None,
         description="不含税金额，单位元，正数",
     )
-    tax_rate: str | Decimal | None = Field(
+    tax_rate: str | float | None = Field(
         default=None,
         description="税率，接受'9%'或 0.09 两种格式，内部统一归一化为小数",
     )
-    total_amount_with_tax: Decimal | None = Field(
+    total_amount_with_tax: float | None = Field(
         default=None,
         description="含税金额（价税合计），单位元，正数",
     )
